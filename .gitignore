@@ -54,5 +54,9 @@ gnarkd/circuits/**
 # go workspace
 go.work
 go.work.sum
+.gocache
 
 examples/gbotrel/**
+
+# rust temp files
+solana-example/build
