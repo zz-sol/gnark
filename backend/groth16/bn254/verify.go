@@ -24,6 +24,7 @@ import (
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr/hash_to_field"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr/pedersen"
 	"github.com/consensys/gnark/backend"
+	"github.com/consensys/gnark/backend/solana"
 	"github.com/consensys/gnark/backend/solidity"
 	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/logger"
@@ -228,4 +229,55 @@ func (vk *VerifyingKey) ExportSolidity(w io.Writer, exportOpts ...solidity.Expor
 	vk.G2.Delta, vk.G2.deltaNeg = vk.G2.deltaNeg, vk.G2.Delta
 
 	return err
+}
+
+// ExportSolana writes a Rust verifier program for Solana on the provided writer.
+// The generated module embeds the verifying key and optionally a test vector
+// that exercises the verifier with a concrete proof and public inputs. It uses
+// the arkworks Groth16 verifier and targets BN254.
+func (vk *VerifyingKey) ExportSolana(w io.Writer, exportOpts ...solana.ExportOption) error {
+	cfg, err := solana.NewExportConfig(exportOpts...)
+	if err != nil {
+		return err
+	}
+	if len(vk.PublicAndCommitmentCommitted) > 0 {
+		// Commitment verification is not wired yet in the Solana template.
+		return fmt.Errorf("exporting solana verifier with commitments is not supported")
+	}
+
+	helpers := template.FuncMap{
+		"fpstr": func(x fp.Element) string {
+			bv := new(big.Int)
+			x.BigInt(bv)
+			return bv.String()
+		},
+		"frstr": func(x fr.Element) string {
+			bv := new(big.Int)
+			x.BigInt(bv)
+			return bv.String()
+		},
+		"sub": func(a, b int) int {
+			return a - b
+		},
+		"intRange": func(max int) []int {
+			out := make([]int, max)
+			for i := 0; i < max; i++ {
+				out[i] = i
+			}
+			return out
+		},
+	}
+
+	tmpl, err := template.New("").Funcs(helpers).Parse(solanaTemplate)
+	if err != nil {
+		return err
+	}
+
+	return tmpl.Execute(w, struct {
+		Cfg solana.ExportConfig
+		Vk  VerifyingKey
+	}{
+		Cfg: cfg,
+		Vk:  *vk,
+	})
 }
